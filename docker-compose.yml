@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  ai-gateway:
+    build:
+      context: .
+    ports:
+      - "${PORT:-1234}:${PORT:-1234}"
+    env_file:
+      - .env
+    restart: unless-stopped
