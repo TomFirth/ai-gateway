@@ -26,6 +26,6 @@ echo "Copying .env to $REMOTE:$REMOTE_DIR/.env..."
 scp .env "$REMOTE:$REMOTE_DIR/.env"
 
 echo "Deploying on $REMOTE..."
-ssh "$REMOTE" "cd '$REMOTE_DIR' && git pull --ff-only origin '$CURRENT_BRANCH' && docker compose down --remove-orphans && docker compose up -d --build"
+ssh "$REMOTE" "cd '$REMOTE_DIR' && git pull --ff-only origin '$CURRENT_BRANCH' && docker compose down --remove-orphans || true && docker compose rm -f || true && docker compose up -d --build"
 
 echo "Deployment complete."
