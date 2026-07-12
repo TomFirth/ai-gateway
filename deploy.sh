@@ -3,7 +3,7 @@ set -euo pipefail
 
 REMOTE_HOST="192.168.1.81"
 REMOTE_DIR="~/ai-gateway"
-REMOTE_USER="${REMOTE_USER:-}"
+REMOTE_USER="barber"
 REMOTE="${REMOTE_USER:+${REMOTE_USER}@}${REMOTE_HOST}"
 
 if [ -n "$(git status --porcelain)" ]; then
