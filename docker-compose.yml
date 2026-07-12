@@ -44,8 +44,6 @@ services:
       POSTGRES_USER: ai
       POSTGRES_PASSWORD: ai_pass
       POSTGRES_DB: ai_gateway
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
