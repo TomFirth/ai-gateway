@@ -204,7 +204,6 @@ async function ensureQdrantCollection(collectionName: string, vectorSize: number
     method: 'PUT',
     headers: {
       'content-type': 'application/json',
-      ...(process.env.QDRANT_API_KEY ? { Authorization: `Bearer ${process.env.QDRANT_API_KEY}` } : {}),
     },
     body: JSON.stringify({
       vectors: {
@@ -239,7 +238,6 @@ async function storeInQdrant(chunks: ChunkEntry[]): Promise<void> {
     method: 'PUT',
     headers: {
       'content-type': 'application/json',
-      ...(process.env.QDRANT_API_KEY ? { Authorization: `Bearer ${process.env.QDRANT_API_KEY}` } : {}),
     },
     body: JSON.stringify({ points }),
   });
@@ -261,7 +259,6 @@ async function queryQdrant(embedding: number[], topK: number): Promise<ChunkEntr
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      ...(process.env.QDRANT_API_KEY ? { Authorization: `Bearer ${process.env.QDRANT_API_KEY}` } : {}),
     },
     body: JSON.stringify({
       vector: embedding,
