@@ -125,7 +125,8 @@ function parseToolInvocation(text: string): ToolInvocation | null {
 }
 
 async function callQwenApi(messages: ChatMessage[]): Promise<string> {
-  const response = await fetch('http://localhost:8080/v1/chat/completions', {
+  const QWEN_URL = process.env.QWEN_URL ?? 'http://192.168.1.81:8080';
+  const response = await fetch(`${QWEN_URL}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
