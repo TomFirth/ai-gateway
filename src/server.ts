@@ -27,4 +27,4 @@ app.setErrorHandler((error, _request, reply) => {
   });
 });
 
-await app.listen({ port });
+await app.listen({ port, host: '0.0.0.0' });
