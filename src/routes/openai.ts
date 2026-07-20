@@ -23,11 +23,15 @@ export default async function openaiRoutes(fastify: any) {
     const {
       messages,
       model,
-      stream = false
+      stream = false,
+      tools,
+      tool_choice
     } = request.body as {
       messages?: ChatMessage[];
       model?: string;
       stream?: boolean;
+      tools?: any[];
+      tool_choice?: string;
     };
 
 
@@ -37,6 +41,10 @@ export default async function openaiRoutes(fastify: any) {
       });
     }
 
+    console.log(
+      "TOOLS:",
+      JSON.stringify(tools, null, 2)
+    );
 
     const response = await chat(messages);
 
