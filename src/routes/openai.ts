@@ -31,7 +31,7 @@ export default async function openaiRoutes(fastify: any) {
       model?: string;
       stream?: boolean;
       tools?: any[];
-      tool_choice?: string;
+      tool_choice?: any;
     };
 
 
@@ -41,18 +41,70 @@ export default async function openaiRoutes(fastify: any) {
       });
     }
 
+
     console.log(
-      "TOOLS:",
-      JSON.stringify(tools, null, 2)
+      'TOOLS:',
+      tools?.length ?? 0
     );
 
-    const response = await chat(messages);
+
+    const response = await chat(
+      messages,
+      tools
+    );
 
 
     const modelName = model ?? 'qwen2.5-coder';
 
 
-    // Streaming response (SSE)
+    /*
+      If Qwen has returned a tool request in our
+      existing format, convert it into OpenAI format.
+
+      Example:
+      read_file("src/App.tsx")
+
+      becomes:
+
+      tool_calls: [...]
+    */
+
+    const toolMatch = response.match(
+      /^([a-zA-Z_]+)\((.*)\)$/
+    );
+
+
+    let assistantMessage: any = {
+      role: 'assistant',
+      content: response
+    };
+
+
+    if (toolMatch) {
+
+      const toolName = toolMatch[1];
+      const rawArgs = toolMatch[2];
+
+      assistantMessage = {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: `call_${Date.now()}`,
+            type: 'function',
+            function: {
+              name: toolName,
+              arguments: JSON.stringify({
+                args: rawArgs
+              })
+            }
+          }
+        ]
+      };
+    }
+
+
+    // Streaming response
     if (stream) {
 
       reply.raw.setHeader(
@@ -80,10 +132,7 @@ export default async function openaiRoutes(fastify: any) {
         choices: [
           {
             index: 0,
-            delta: {
-              role: 'assistant',
-              content: response
-            },
+            delta: assistantMessage,
             finish_reason: null
           }
         ]
@@ -95,7 +144,6 @@ export default async function openaiRoutes(fastify: any) {
       );
 
 
-      // Finish event
       reply.raw.write(
         `data: ${JSON.stringify({
           id: chunk.id,
@@ -122,7 +170,6 @@ export default async function openaiRoutes(fastify: any) {
     }
 
 
-    // Normal JSON response
     return {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
@@ -132,11 +179,10 @@ export default async function openaiRoutes(fastify: any) {
       choices: [
         {
           index: 0,
-          message: {
-            role: 'assistant',
-            content: response
-          },
-          finish_reason: 'stop'
+          message: assistantMessage,
+          finish_reason: assistantMessage.tool_calls
+            ? 'tool_calls'
+            : 'stop'
         }
       ]
     };

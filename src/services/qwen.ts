@@ -124,7 +124,10 @@ function parseToolInvocation(text: string): ToolInvocation | null {
   return { name, args };
 }
 
-async function callQwenApi(messages: ChatMessage[]): Promise<string> {
+async function callQwenApi(
+  messages: ChatMessage[],
+  tools?: any[]
+): Promise<string> {
   const QWEN_URL = process.env.QWEN_URL ?? 'http://192.168.1.81:8080';
   const response = await fetch(`${QWEN_URL}/v1/chat/completions`, {
     method: 'POST',
@@ -132,8 +135,9 @@ async function callQwenApi(messages: ChatMessage[]): Promise<string> {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'qwen',
+      model: 'qwen2.5-coder',
       messages,
+      ...(tools ? { tools } : {})
     }),
   });
 
@@ -156,14 +160,20 @@ async function callQwenApi(messages: ChatMessage[]): Promise<string> {
   return text;
 }
 
-export async function chat(messages: ChatMessage[]): Promise<string> {
+export async function chat(
+  messages: ChatMessage[],
+  openaiTools?: any[]
+): Promise<string> {
   const conversation: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...messages,
   ];
 
   for (let loop = 0; loop < 3; loop += 1) {
-    const assistantResponse = await callQwenApi(conversation);
+    const assistantResponse = await callQwenApi(
+      conversation,
+      openaiTools
+    );
     const toolInvocation = parseToolInvocation(assistantResponse);
 
     if (!toolInvocation) {
