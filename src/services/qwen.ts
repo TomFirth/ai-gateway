@@ -263,7 +263,7 @@ async function callQwenApi(
         messages,
         temperature: 0.05,
         top_p: 0.9,
-        max_tokens: 4096,
+        max_tokens: 768,
         stream,
         ...(useTools
           ? {
