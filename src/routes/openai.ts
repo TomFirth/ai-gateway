@@ -18,6 +18,10 @@ export default async function openaiRoutes(fastify: any) {
 
   fastify.post('/chat/completions', async (request: any, reply: any) => {
 
+console.log(
+  JSON.stringify(request.body, null, 2)
+);
+
     const {
       messages,
       model,
