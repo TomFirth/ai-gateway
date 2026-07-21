@@ -237,6 +237,24 @@ function parseToolCall(text: string) {
   };
 }
 
+function trimMessages(messages: ChatMessage[], maxChars = 12000) {
+  let total = 0;
+  const result: ChatMessage[] = [];
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const size = messages[i].content?.length ?? 0;
+
+    if (total + size > maxChars) {
+      break;
+    }
+
+    result.unshift(messages[i]);
+    total += size;
+  }
+
+  return result;
+}
+
 async function callQwenApi(
   messages: ChatMessage[],
   useTools = true,
@@ -261,10 +279,10 @@ async function callQwenApi(
       signal: controller.signal,
       body: JSON.stringify({
         model: 'qwen2.5-coder',
-        messages,
+        messages: trimMessages(messages),
         temperature: 0.05,
         top_p: 0.9,
-        max_tokens: 768,
+        max_tokens: 512,
         stream,
         ...(useTools
           ? {
@@ -372,13 +390,7 @@ export async function* chatStream(
   messages: ChatMessage[]
 ) {
   const response = await callQwenApi(
-    [
-      {
-        role: 'system',
-        content: GENERAL_SYSTEM_PROMPT
-      },
-      ...messages
-    ],
+    messages,
     false,
     true
   );
