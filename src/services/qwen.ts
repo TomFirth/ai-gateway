@@ -21,32 +21,6 @@ export type ChatMessage = {
   tool_calls?: ToolCall[];
 };
 
-const CODING_SYSTEM_PROMPT = `
-You are a coding assistant running locally.
-
-Rules:
-- Inspect files before making assumptions.
-- Use tools when project information is required.
-- Never invent file contents.
-- Prefer small safe changes.
-- Use tools only through function calls.
-- Never output XML tool calls manually.
-
-Available tools:
-git_status()
-git_diff(path)
-git_log(count)
-list_directory(path)
-open_file(path)
-read_file(path)
-search_text(query)
-replace_text(path, searchText, replaceText)
-rename_symbol(oldName,newName,filePath)
-run_tests()
-run_npm(args)
-terminal(command)
-`;
-
 const tools = {
   git_status: {
     description: 'Get current git repository status.',
@@ -69,7 +43,7 @@ const tools = {
   },
 
   git_log: {
-    description: 'Show recent git commits.',
+    description: 'Show git log.',
     run: gitLog,
     parameters: {
       type: 'object',
@@ -80,7 +54,7 @@ const tools = {
   },
 
   list_directory: {
-    description: 'List project files.',
+    description: 'List files.',
     run: listDirectory,
     parameters: {
       type: 'object',
@@ -91,7 +65,7 @@ const tools = {
   },
 
   open_file: {
-    description: 'Open a file.',
+    description: 'Open file.',
     run: openFile,
     parameters: {
       type: 'object',
@@ -102,7 +76,7 @@ const tools = {
   },
 
   read_file: {
-    description: 'Read a file.',
+    description: 'Read file.',
     run: readFile,
     parameters: {
       type: 'object',
@@ -113,7 +87,7 @@ const tools = {
   },
 
   search_text: {
-    description: 'Search project text.',
+    description: 'Search files.',
     run: searchText,
     parameters: {
       type: 'object',
@@ -124,7 +98,7 @@ const tools = {
   },
 
   replace_text: {
-    description: 'Replace text in a file.',
+    description: 'Replace text.',
     run: replaceText,
     parameters: {
       type: 'object',
@@ -159,7 +133,7 @@ const tools = {
   },
 
   run_npm: {
-    description: 'Run npm.',
+    description: 'Run npm command.',
     run: runNpm,
     parameters: {
       type: 'object',
@@ -181,7 +155,9 @@ const tools = {
   }
 } as const;
 
+
 type ToolName = keyof typeof tools;
+
 
 export const openAITools = Object.entries(tools).map(
   ([name, tool]) => ({
@@ -194,285 +170,210 @@ export const openAITools = Object.entries(tools).map(
   })
 );
 
-function isToolName(value: string): value is ToolName {
-  return value in tools;
-}
-
-function parseToolCall(text: string) {
-  const match = text.match(
-    /<tool_call>\s*(.*?)\s*<\/tool_call>/s
-  );
-
-  if (!match?.[1]) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(match[1]);
-
-    if (
-      typeof parsed.name !== 'string' ||
-      !isToolName(parsed.name)
-    ) {
-      return null;
-    }
-
-    return {
-      name: parsed.name,
-      arguments: parsed.arguments ?? {}
-    };
-  } catch {
-    return null;
-  }
-}
 
 function trimMessages(
   messages: ChatMessage[],
-  maxChars = 5000
+  maxChars = 12000
 ) {
   let total = 0;
-  const result: ChatMessage[] = [];
+  const output: ChatMessage[] = [];
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
+    const msg = messages[i];
 
-    if (!message) {
+    if (!msg) {
       continue;
     }
 
-    const size = message.content?.length ?? 0;
+    const size = msg.content?.length ?? 0;
 
     if (total + size > maxChars) {
       break;
     }
 
-    result.unshift(message);
+    output.unshift(msg);
     total += size;
   }
 
-  return result;
+  return output;
 }
+
+
+function cleanMessages(
+  messages: ChatMessage[]
+) {
+  return messages.filter(
+    message =>
+      message.role !== 'system'
+  );
+}
+
 
 async function callQwenApi(
   messages: ChatMessage[],
-  useTools = false,
-  stream = false
+  options?: {
+    tools?: boolean;
+    stream?: boolean;
+  }
 ) {
+
   const url =
     process.env.QWEN_URL ??
     'http://192.168.1.81:8080';
 
-  console.log('QWEN URL:', url);
 
-  const controller = new AbortController();
+  const response = await fetch(
+    `${url}/v1/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type':'application/json'
+      },
 
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, 600000);
+      body: JSON.stringify({
 
-  try {
-    const response = await fetch(
-      `${url}/v1/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json'
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: 'qwen2.5-coder',
-          messages: [
-            messages[0],
-            ...trimMessages(messages.slice(1))
-          ].filter(Boolean),
-          temperature: useTools ? 0.05 : 0.2,
-          top_p: 0.9,
-          max_tokens: 256,
-          stream,
-          ...(useTools
-            ? {
-                tools: openAITools,
-                tool_choice: 'auto'
-              }
-            : {})
-        })
-      }
-    );
+        model:'qwen2.5-coder',
 
-    if (!response.ok) {
-      throw new Error(await response.text());
+        messages: trimMessages(
+          cleanMessages(messages)
+        ),
+
+        temperature:0.1,
+
+        top_p:0.9,
+
+        max_tokens:4096,
+
+        stream:
+          options?.stream ?? false,
+
+        ...(options?.tools
+          ? {
+              tools:openAITools,
+              tool_choice:'auto'
+            }
+          : {})
+
+      })
     }
+  );
 
-    return response;
 
-  } finally {
-    clearTimeout(timeout);
+  if (!response.ok) {
+    throw new Error(
+      await response.text()
+    );
   }
+
+
+  return response;
 }
+
+
 
 export async function chat(
   messages: ChatMessage[]
-): Promise<string> {
+) {
 
-  const conversation: ChatMessage[] = [
-    {
-      role: 'system',
-      content: CODING_SYSTEM_PROMPT
-    },
-    ...messages
-  ];
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-
-    const response = await callQwenApi(
-      conversation,
-      CODING_SYSTEM_PROMPT.length > 0,
-    );
-
-    const payload = await response.json();
-
-    const assistant =
-      payload.choices?.[0]?.message;
-
-    if (!assistant) {
-      throw new Error(
-        'Missing assistant response'
-      );
-    }
-
-    if (assistant.tool_calls?.length) {
-
-      conversation.push({
-        role: 'assistant',
-        content: null,
-        tool_calls: assistant.tool_calls
-      });
-
-      for (const call of assistant.tool_calls) {
-
-        const name = call.function.name;
-
-        if (!isToolName(name)) {
-          continue;
-        }
-
-        const tool = tools[name];
-
-        let args: Record<string, unknown> = {};
-
-        try {
-          args = JSON.parse(
-            call.function.arguments || '{}'
-          );
-        } catch {
-          console.error(
-            'Invalid tool args:',
-            call.function.arguments
-          );
-        }
-
-        const result = await (
-          tool.run as (...args: any[]) => Promise<string>
-        )(
-          ...Object.values(args)
-        );
-
-        conversation.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: String(result)
-        });
+  const response =
+    await callQwenApi(
+      messages,
+      {
+        tools:true
       }
-
-      continue;
-    }
-
-    const text = assistant.content ?? '';
-
-    const fallback = parseToolCall(text);
-
-    if (!fallback) {
-      return text;
-    }
-
-    const result = await (
-      tools[fallback.name].run as (...args: any[]) => Promise<string>
-    )(
-      ...Object.values(fallback.arguments)
     );
 
-    conversation.push({
-      role: 'assistant',
-      content: text
-    });
 
-    conversation.push({
-      role: 'tool',
-      content: String(result)
-    });
-  }
+  const json =
+    await response.json();
 
-  return 'Unable to complete request.';
+
+  return (
+    json
+      .choices?.[0]
+      ?.message
+      ?.content ?? ''
+  );
 }
+
+
 
 export async function* chatStream(
   messages: ChatMessage[]
 ) {
-  const conversation = messages.filter(
-    message =>
-      message.role !== 'system'
-  );
 
-  const response = await callQwenApi(
-    conversation,
-    false,
-    true
-  );
+  const response =
+    await callQwenApi(
+      messages,
+      {
+        stream:true
+      }
+    );
+
 
   if (!response.body) {
     throw new Error(
-      'No stream body'
+      'No response body'
     );
   }
+
 
   const reader =
     response.body.getReader();
 
+
   const decoder =
     new TextDecoder();
 
-  let buffer = '';
 
-  while (true) {
+  let buffer='';
+
+
+  while(true){
+
     const {
       done,
       value
-    } = await reader.read();
+    } =
+      await reader.read();
 
-    if (done) {
+
+    if(done){
       break;
     }
+
 
     buffer += decoder.decode(
       value,
       {
-        stream: true
+        stream:true
       }
     );
 
-    while (buffer.includes('\n\n')) {
+
+    while(buffer.includes('\n\n')){
+
       const index =
         buffer.indexOf('\n\n');
 
+
       const event =
-        buffer.slice(0,index);
+        buffer.slice(
+          0,
+          index
+        );
+
 
       buffer =
-        buffer.slice(index + 2);
+        buffer.slice(
+          index + 2
+        );
 
-      if (!event.startsWith('data:')) {
+
+      if(!event.startsWith('data:')){
         continue;
       }
+
 
       const data =
         event.replace(
@@ -480,24 +381,34 @@ export async function* chatStream(
           ''
         );
 
-      if (data === '[DONE]') {
+
+      if(data === '[DONE]'){
         return;
       }
 
-      try {
+
+      try{
+
         const json =
           JSON.parse(data);
 
-        const token =
-          json.choices?.[0]?.delta?.content;
 
-        if (token) {
+        const token =
+          json
+            .choices?.[0]
+            ?.delta
+            ?.content;
+
+
+        if(token){
           yield token;
         }
 
-      } catch {
+      }
+      catch{
         continue;
       }
+
     }
   }
 }
