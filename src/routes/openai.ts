@@ -43,8 +43,15 @@ export default async function openaiRoutes(fastify: any) {
 
 
     console.log(
-      'TOOLS:',
-      tools?.length ?? 0
+      "===== INCOMING VS CODE REQUEST ====="
+    );
+
+    console.log(
+      JSON.stringify(request.body, null, 2)
+    );
+
+    console.log(
+      "===================================="
     );
 
 
@@ -52,7 +59,6 @@ export default async function openaiRoutes(fastify: any) {
       messages,
       tools
     );
-
 
     const modelName = model ?? 'qwen2.5-coder';
 
