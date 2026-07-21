@@ -1,8 +1,7 @@
-import { chat, type ChatMessage } from '../services/qwen.js';
+import { chat, chatStream, type ChatMessage } from '../services/qwen.js';
 
 export default async function openaiRoutes(fastify: any) {
 
-  // VS Code uses this to discover available models
   fastify.get('/models', async () => {
     return {
       object: 'list',
@@ -17,21 +16,18 @@ export default async function openaiRoutes(fastify: any) {
   });
 
 
-  // OpenAI-compatible chat endpoint
   fastify.post('/chat/completions', async (request: any, reply: any) => {
 
     const {
       messages,
       model,
       stream = false,
-      tools,
-      tool_choice
+      tools
     } = request.body as {
       messages?: ChatMessage[];
       model?: string;
       stream?: boolean;
       tools?: any[];
-      tool_choice?: any;
     };
 
 
@@ -42,75 +38,30 @@ export default async function openaiRoutes(fastify: any) {
     }
 
 
-    console.log(
-      "===== INCOMING VS CODE REQUEST ====="
-    );
+    console.log('===== INCOMING VS CODE REQUEST =====');
+    console.log(JSON.stringify(request.body, null, 2));
+    console.log('====================================');
 
-    console.log(
-      JSON.stringify(request.body, null, 2)
-    );
-
-    console.log(
-      "===================================="
-    );
-
-
-    const response = await chat(
-      messages,
-      tools
-    );
 
     const modelName = model ?? 'qwen2.5-coder';
 
 
     /*
-      If Qwen has returned a tool request in our
-      existing format, convert it into OpenAI format.
+      TRUE STREAMING MODE
 
-      Example:
-      read_file("src/App.tsx")
-
-      becomes:
-
-      tool_calls: [...]
-    */
-
-    const toolMatch = response.match(
-      /^([a-zA-Z_]+)\((.*)\)$/
-    );
-
-
-    let assistantMessage: any = {
-      role: 'assistant',
-      content: response
-    };
-
-
-    if (toolMatch) {
-
-      const toolName = toolMatch[1];
-      const rawArgs = toolMatch[2];
-
-      assistantMessage = {
-        role: 'assistant',
-        content: null,
-        tool_calls: [
+      VS Code expects OpenAI SSE chunks:
+      
+      data: {
+        choices:[
           {
-            id: `call_${Date.now()}`,
-            type: 'function',
-            function: {
-              name: toolName,
-              arguments: JSON.stringify({
-                args: rawArgs
-              })
+            delta:{
+              content:"token"
             }
           }
         ]
-      };
-    }
+      }
+    */
 
-
-    // Streaming response
     if (stream) {
 
       reply.raw.setHeader(
@@ -129,51 +80,84 @@ export default async function openaiRoutes(fastify: any) {
       );
 
 
-      const chunk = {
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion.chunk',
-        created: Math.floor(Date.now() / 1000),
-        model: modelName,
-
-        choices: [
-          {
-            index: 0,
-            delta: assistantMessage,
-            finish_reason: null
-          }
-        ]
-      };
+      const id = `chatcmpl-${Date.now()}`;
+      const created = Math.floor(Date.now() / 1000);
 
 
-      reply.raw.write(
-        `data: ${JSON.stringify(chunk)}\n\n`
-      );
+      try {
+
+        for await (const token of chatStream(messages)) {
+
+          reply.raw.write(
+            `data: ${JSON.stringify({
+              id,
+              object: 'chat.completion.chunk',
+              created,
+              model: modelName,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: token
+                  },
+                  finish_reason: null
+                }
+              ]
+            })}\n\n`
+          );
+        }
 
 
-      reply.raw.write(
-        `data: ${JSON.stringify({
-          id: chunk.id,
-          object: 'chat.completion.chunk',
-          created: chunk.created,
-          model: modelName,
-          choices: [
-            {
-              index: 0,
-              delta: {},
-              finish_reason: 'stop'
-            }
-          ]
-        })}\n\n`
-      );
+        reply.raw.write(
+          `data: ${JSON.stringify({
+            id,
+            object: 'chat.completion.chunk',
+            created,
+            model: modelName,
+            choices: [
+              {
+                index: 0,
+                delta: {},
+                finish_reason: 'stop'
+              }
+            ]
+          })}\n\n`
+        );
 
 
-      reply.raw.write(
-        'data: [DONE]\n\n'
-      );
+        reply.raw.write(
+          'data: [DONE]\n\n'
+        );
+
+      } catch (error) {
+
+        console.error(
+          'Streaming error:',
+          error
+        );
+
+      } finally {
+
+        reply.raw.end();
+
+      }
 
 
-      return reply.raw.end();
+      return;
     }
+
+
+    /*
+      NORMAL JSON MODE
+
+      Used by clients that do not request streaming.
+    */
+
+
+    const response = await chat(
+      messages,
+      tools
+    );
 
 
     return {
@@ -185,10 +169,11 @@ export default async function openaiRoutes(fastify: any) {
       choices: [
         {
           index: 0,
-          message: assistantMessage,
-          finish_reason: assistantMessage.tool_calls
-            ? 'tool_calls'
-            : 'stop'
+          message: {
+            role: 'assistant',
+            content: response
+          },
+          finish_reason: 'stop'
         }
       ]
     };

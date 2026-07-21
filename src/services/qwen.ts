@@ -5,19 +5,20 @@ import { gitStatus, gitDiff, gitLog } from '../tools/git.js';
 import { runTests, runNpm, terminal } from '../tools/run.js';
 import { openFile, replaceText, renameSymbol } from '../tools/fileOps.js';
 
-
 export type ChatMessage = {
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_call_id?: string;
   tool_calls?: any[];
 };
 
-
 const SYSTEM_PROMPT = `
 You are a coding assistant.
 
-When you need to inspect or modify files, use the available tools.
+Rules:
+- Inspect files before making assumptions.
+- Use tools when you need project information.
+- Do not invent code you have not inspected.
 
 Available tools:
 git_status()
@@ -28,357 +29,392 @@ open_file(path)
 read_file(path)
 search_text(query)
 replace_text(path, searchText, replaceText)
-rename_symbol(oldName, newName, filePath)
+rename_symbol(oldName,newName,filePath)
 run_tests()
 run_npm(args)
 terminal(command)
 
-If using tools, call them exactly like:
-tool_name(argument)
-
-Do not explain the tool call. Only output the tool call.
+When using a tool, output only the tool call.
 `;
-
 
 const tools = {
   git_status: {
-    description: 'Show git status for the active project.',
+    description: 'Get current git repository status.',
     run: gitStatus,
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
   },
 
   git_diff: {
-    description: 'Show git diff for the active project or a specific file.',
+    description: 'Show git diff for the project or a file.',
     run: gitDiff,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   git_log: {
-    description: 'Show recent git history for the active project.',
+    description: 'Show recent git commit history.',
     run: gitLog,
+    parameters: {
+      type: 'object',
+      properties: {
+        count: {
+          type: 'number'
+        }
+      }
+    }
   },
 
   list_directory: {
-    description: 'List files and directories under the active project root.',
+    description: 'List project files and folders.',
     run: listDirectory,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   open_file: {
-    description: 'Open a file under the active project root.',
+    description: 'Open a file and return contents.',
     run: openFile,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   read_file: {
-    description: 'Read the contents of a text file under the active project root.',
+    description: 'Read a text file.',
     run: readFile,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   search_text: {
-    description: 'Search text across files under the active project root.',
+    description: 'Search text across project files.',
     run: searchText,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   replace_text: {
-    description: 'Replace matching text inside a file.',
+    description: 'Replace text inside a file.',
     run: replaceText,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string'
+        },
+        searchText: {
+          type: 'string'
+        },
+        replaceText: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   rename_symbol: {
-    description: 'Rename a symbol across project files.',
+    description: 'Rename a symbol in a source file.',
     run: renameSymbol,
+    parameters: {
+      type: 'object',
+      properties: {
+        oldName: {
+          type: 'string'
+        },
+        newName: {
+          type: 'string'
+        },
+        filePath: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   run_tests: {
-    description: 'Run the project test suite.',
+    description: 'Run project tests.',
     run: runTests,
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
   },
 
   run_npm: {
     description: 'Run npm commands.',
     run: runNpm,
+    parameters: {
+      type: 'object',
+      properties: {
+        args: {
+          type: 'string'
+        }
+      }
+    }
   },
 
   terminal: {
-    description: 'Run a terminal command.',
+    description: 'Run terminal commands.',
     run: terminal,
-  },
+    parameters: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string'
+        }
+      }
+    }
+  }
 } as const;
-
 
 type ToolName = keyof typeof tools;
 
+export const openAITools = Object.entries(tools).map(([name, tool]) => ({
+  type: 'function',
+  function: {
+    name,
+    description: tool.description,
+    parameters: tool.parameters
+  }
+}));
 
-/*
- Convert our tools into OpenAI function format.
- llama.cpp understands this format.
-*/
-export const openAITools = Object.entries(tools).map(
-  ([name, tool]) => ({
-    type: 'function',
-    function: {
-      name,
-      description: tool.description,
-      parameters: {
-        type: 'object',
-        properties: {}
-      }
-    }
-  })
-);
-
-
-
-type ToolInvocation = {
-  name: ToolName;
-  args: string[];
-};
-
-
-function parseToolInvocation(
-  text: string
-): ToolInvocation | null {
-
-  const toolNames = Object.keys(tools).join('|');
-
+function parseToolCall(text: string) {
   const match = text.match(
-    new RegExp(
-      `\\b(${toolNames})\\s*\\(\\s*([\\s\\S]*?)\\s*\\)`,
-      'i'
-    )
+    new RegExp(`(${Object.keys(tools).join('|')})\\((.*?)\\)`, 's')
   );
-
 
   if (!match) {
     return null;
   }
 
-
-  const name = match[1].toLowerCase() as ToolName;
-
-  const args: string[] = [];
-
-  const argRegex = /(['"])(.*?)\1|([^,\s]+)/g;
-
-  let argMatch;
-
-  while ((argMatch = argRegex.exec(match[2])) !== null) {
-
-    const value =
-      argMatch[2] ??
-      argMatch[3];
-
-    if (value) {
-      args.push(value.trim());
-    }
-  }
-
-
   return {
-    name,
-    args
+    name: match[1] as ToolName,
+    args: match[2]
+      .split(',')
+      .map(x => x.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean)
   };
 }
 
-
-
 async function callQwenApi(
   messages: ChatMessage[],
-  openaiTools?: any[]
+  useTools = true,
+  stream = false
 ) {
+  const url = process.env.QWEN_URL ?? 'http://192.168.1.81:8080';
 
-  const QWEN_URL =
-    process.env.QWEN_URL ??
-    'http://192.168.1.81:8080';
+  const controller = new AbortController();
 
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 300000);
 
-  const response = await fetch(
-    `${QWEN_URL}/v1/chat/completions`,
-    {
+  try {
+    const response = await fetch(`${url}/v1/chat/completions`, {
       method: 'POST',
-
       headers: {
         'content-type': 'application/json',
+        connection: 'keep-alive'
       },
-
+      signal: controller.signal,
       body: JSON.stringify({
         model: 'qwen2.5-coder',
         messages,
-
-        ...(openaiTools?.length
+        temperature: 0.05,
+        top_p: 0.9,
+        max_tokens: 1024,
+        stream,
+        ...(useTools
           ? {
-              tools: openaiTools,
+              tools: openAITools,
               tool_choice: 'auto'
             }
           : {})
-      }),
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
-  );
 
-
-  if (!response.ok) {
-
-    const bodyText =
-      await response.text();
-
-    throw new Error(
-      `Qwen request failed: ${response.status} ${bodyText}`
-    );
+    return response;
+  } finally {
+    clearTimeout(timeout);
   }
-
-
-  return await response.json();
 }
 
-
-
 export async function chat(
-  messages: ChatMessage[],
-  incomingTools?: any[]
+  messages: ChatMessage[]
 ): Promise<string> {
-
-
   const conversation: ChatMessage[] = [
     {
       role: 'system',
       content: SYSTEM_PROMPT
     },
-
     ...messages
   ];
 
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const response = await callQwenApi(conversation);
+    const payload = await response.json();
 
-
-  for (let loop = 0; loop < 3; loop++) {
-
-
-    const payload =
-      await callQwenApi(
-        conversation,
-        incomingTools ?? openAITools
-      );
-
-
-
-    const assistant =
-      payload.choices?.[0]?.message;
-
-
+    const assistant = payload.choices?.[0]?.message;
 
     if (!assistant) {
-      throw new Error(
-        'Qwen returned no message'
-      );
+      throw new Error('Missing assistant response');
     }
 
-
-
-    /*
-      Native OpenAI tool calling
-    */
-
-    if (
-      assistant.tool_calls &&
-      assistant.tool_calls.length
-    ) {
+    if (assistant.tool_calls?.length) {
+      conversation.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: assistant.tool_calls
+      });
 
       for (const call of assistant.tool_calls) {
-
-        const name =
-          call.function.name as ToolName;
-
-
-        const args =
-          JSON.parse(
-            call.function.arguments || '{}'
-          );
-
-
-        const tool =
-          tools[name];
-
+        const name = call.function.name as ToolName;
+        const tool = tools[name];
 
         if (!tool) {
           continue;
         }
 
+        const args = JSON.parse(call.function.arguments || '{}');
 
-        const result =
-          await (
-            tool.run as any
-          )(
-            ...Object.values(args)
-          );
-
-
-        conversation.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: assistant.tool_calls
-        });
-
+        const result = await (tool.run as any)(
+          ...Object.values(args)
+        );
 
         conversation.push({
           role: 'tool',
           tool_call_id: call.id,
-          content: result
+          content: String(result)
         });
       }
-
 
       continue;
     }
 
+    const text = assistant.content ?? '';
+    const fallback = parseToolCall(text);
 
-
-    const text =
-      assistant.content;
-
-
-    if (!text) {
-      throw new Error(
-        'Qwen returned empty response'
-      );
-    }
-
-
-
-    /*
-      Fallback:
-      qwen text based tool calls
-    */
-
-    const toolInvocation =
-      parseToolInvocation(text);
-
-
-    if (!toolInvocation) {
+    if (!fallback) {
       return text;
     }
 
-
-    const tool =
-      tools[toolInvocation.name];
-
-
-    const result =
-      await (
-        tool.run as any
-      )(
-        ...toolInvocation.args
-      );
-
+    const result = await (tools[fallback.name].run as any)(
+      ...fallback.args
+    );
 
     conversation.push({
       role: 'assistant',
       content: text
     });
 
-
     conversation.push({
-      role: 'system',
-      content:
-        `Tool ${toolInvocation.name} returned:\n${result}`
+      role: 'tool',
+      content: String(result)
     });
   }
 
-
   return 'Unable to complete request.';
+}
+
+export async function* chatStream(
+  messages: ChatMessage[]
+) {
+  const response = await callQwenApi(
+    [
+      {
+        role: 'system',
+        content: SYSTEM_PROMPT
+      },
+      ...messages
+    ],
+    false,
+    true
+  );
+
+  if (!response.body) {
+    throw new Error('No stream body');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, {
+      stream: true
+    });
+
+    while (buffer.includes('\n\n')) {
+      const index = buffer.indexOf('\n\n');
+
+      const event = buffer.slice(0, index);
+      buffer = buffer.slice(index + 2);
+
+      if (!event.startsWith('data:')) {
+        continue;
+      }
+
+      const data = event.replace(/^data:\s*/, '');
+
+      if (data === '[DONE]') {
+        return;
+      }
+
+      try {
+        const json = JSON.parse(data);
+
+        const token =
+          json.choices?.[0]?.delta?.content;
+
+        if (token) {
+          yield token;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
 }
