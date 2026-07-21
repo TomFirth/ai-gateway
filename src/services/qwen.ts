@@ -243,6 +243,7 @@ async function callQwenApi(
   stream = false
 ) {
   const url = process.env.QWEN_URL ?? 'http://192.168.1.81:8080';
+  console.log('QWEN URL:', url);
 
   const controller = new AbortController();
 
