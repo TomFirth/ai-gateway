@@ -12,7 +12,16 @@ export type ChatMessage = {
   tool_calls?: any[];
 };
 
-const SYSTEM_PROMPT = `
+const GENERAL_SYSTEM_PROMPT = `
+You are a helpful assistant.
+
+Rules:
+- Respond only with natural language.
+- Do not output JSON.
+- Do not call tools.
+`;
+
+const CODING_SYSTEM_PROMPT = `
 You are a coding assistant.
 
 Rules:
@@ -276,18 +285,24 @@ async function callQwenApi(
 }
 
 export async function chat(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  useTools = false
 ): Promise<string> {
   const conversation: ChatMessage[] = [
     {
       role: 'system',
-      content: SYSTEM_PROMPT
+      content: useTools
+        ? CODING_SYSTEM_PROMPT
+        : GENERAL_SYSTEM_PROMPT
     },
     ...messages
   ];
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    const response = await callQwenApi(conversation);
+    const response = await callQwenApi(
+      conversation,
+      useTools
+    );
     const payload = await response.json();
 
     const assistant = payload.choices?.[0]?.message;
@@ -359,7 +374,7 @@ export async function* chatStream(
     [
       {
         role: 'system',
-        content: SYSTEM_PROMPT
+        content: GENERAL_SYSTEM_PROMPT
       },
       ...messages
     ],

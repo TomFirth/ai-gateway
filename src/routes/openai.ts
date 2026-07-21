@@ -170,13 +170,7 @@ export default async function openaiRoutes(fastify: any) {
       return;
     }
 
-
-    const response =
-      await chat(
-        messages,
-        tools
-      );
-
+    const response = await chat(messages, Array.isArray(tools) && tools.length > 0);
 
     return {
       id: `chatcmpl-${Date.now()}`,
