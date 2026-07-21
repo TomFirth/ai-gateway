@@ -4,9 +4,10 @@ import chatRouter from './routes/chat.js';
 import projectRouter from './routes/project.js';
 import conversationsRouter from './routes/conversations.js';
 import openaiRoutes from './routes/openai.js';
+import completionRoutes from './routes/completion.js';
 
 const app = Fastify({ logger: true });
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 1234);
 
 await app.register(cors, {
   origin: true,
@@ -16,6 +17,7 @@ app.register(chatRouter, { prefix: '/chat' });
 app.register(projectRouter, { prefix: '/project' });
 app.register(conversationsRouter, { prefix: '/conversations' });
 app.register(openaiRoutes, { prefix: '/v1' });
+app.register(completionRoutes, { prefix: '/completion' });
 
 app.get('/health', async () => ({ status: 'ok' }));
 

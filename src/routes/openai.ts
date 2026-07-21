@@ -31,64 +31,85 @@ export default async function openaiRoutes(fastify: any) {
     };
 
 
-    if (!messages || !Array.isArray(messages)) {
+    if (!Array.isArray(messages)) {
       return reply.status(400).send({
-        error: 'messages array required'
+        error: {
+          message: 'messages array required'
+        }
       });
     }
 
 
-    console.log('===== INCOMING VS CODE REQUEST =====');
-    console.log(JSON.stringify(request.body, null, 2));
-    console.log('====================================');
+    const modelName =
+      model ?? 'qwen2.5-coder';
 
 
-    const modelName = model ?? 'qwen2.5-coder';
+    console.log(
+      `[chat] ${messages.length} messages | stream=${stream}`
+    );
 
-
-    /*
-      TRUE STREAMING MODE
-
-      VS Code expects OpenAI SSE chunks:
-      
-      data: {
-        choices:[
-          {
-            delta:{
-              content:"token"
-            }
-          }
-        ]
-      }
-    */
 
     if (stream) {
 
-      reply.raw.setHeader(
+      reply.hijack();
+
+      const raw = reply.raw;
+
+
+      raw.setHeader(
         'Content-Type',
         'text/event-stream'
       );
 
-      reply.raw.setHeader(
+      raw.setHeader(
         'Cache-Control',
-        'no-cache'
+        'no-cache, no-transform'
       );
 
-      reply.raw.setHeader(
+      raw.setHeader(
         'Connection',
         'keep-alive'
       );
 
+      raw.setHeader(
+        'X-Accel-Buffering',
+        'no'
+      );
 
-      const id = `chatcmpl-${Date.now()}`;
-      const created = Math.floor(Date.now() / 1000);
+
+      raw.flushHeaders?.();
+
+
+      const id =
+        `chatcmpl-${Date.now()}`;
+
+      const created =
+        Math.floor(Date.now() / 1000);
+
+
+      let closed = false;
+
+
+      request.raw.on(
+        'close',
+        () => {
+          closed = true;
+        }
+      );
 
 
       try {
 
-        for await (const token of chatStream(messages)) {
+        for await (
+          const token of chatStream(messages)
+        ) {
 
-          reply.raw.write(
+          if (closed) {
+            break;
+          }
+
+
+          raw.write(
             `data: ${JSON.stringify({
               id,
               object: 'chat.completion.chunk',
@@ -108,37 +129,40 @@ export default async function openaiRoutes(fastify: any) {
         }
 
 
-        reply.raw.write(
-          `data: ${JSON.stringify({
-            id,
-            object: 'chat.completion.chunk',
-            created,
-            model: modelName,
-            choices: [
-              {
-                index: 0,
-                delta: {},
-                finish_reason: 'stop'
-              }
-            ]
-          })}\n\n`
-        );
+        if (!closed) {
+
+          raw.write(
+            `data: ${JSON.stringify({
+              id,
+              object: 'chat.completion.chunk',
+              created,
+              model: modelName,
+              choices: [
+                {
+                  index: 0,
+                  delta: {},
+                  finish_reason: 'stop'
+                }
+              ]
+            })}\n\n`
+          );
 
 
-        reply.raw.write(
-          'data: [DONE]\n\n'
-        );
+          raw.write(
+            'data: [DONE]\n\n'
+          );
+        }
 
       } catch (error) {
 
         console.error(
-          'Streaming error:',
+          '[stream error]',
           error
         );
 
       } finally {
 
-        reply.raw.end();
+        raw.end();
 
       }
 
@@ -147,17 +171,11 @@ export default async function openaiRoutes(fastify: any) {
     }
 
 
-    /*
-      NORMAL JSON MODE
-
-      Used by clients that do not request streaming.
-    */
-
-
-    const response = await chat(
-      messages,
-      tools
-    );
+    const response =
+      await chat(
+        messages,
+        tools
+      );
 
 
     return {
