@@ -428,17 +428,12 @@ export async function chat(
 }
 
 export async function* chatStream(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  useTools = false
 ) {
   const response = await callQwenApi(
-    [
-      {
-        role: 'system',
-        content: GENERAL_SYSTEM_PROMPT
-      },
-      ...messages
-    ],
-    false,
+    messages,
+    useTools,
     true
   );
 
@@ -448,16 +443,12 @@ export async function* chatStream(
     );
   }
 
-  const reader =
-    response.body.getReader();
-
-  const decoder =
-    new TextDecoder();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
 
   let buffer = '';
 
   while (true) {
-
     const {
       done,
       value
@@ -475,34 +466,32 @@ export async function* chatStream(
     );
 
     while (buffer.includes('\n\n')) {
+      const index = buffer.indexOf('\n\n');
 
-      const index =
-        buffer.indexOf('\n\n');
+      const event = buffer.slice(
+        0,
+        index
+      );
 
-      const event =
-        buffer.slice(0, index);
-
-      buffer =
-        buffer.slice(index + 2);
+      buffer = buffer.slice(
+        index + 2
+      );
 
       if (!event.startsWith('data:')) {
         continue;
       }
 
-      const data =
-        event.replace(
-          /^data:\s*/,
-          ''
-        );
+      const data = event.replace(
+        /^data:\s*/,
+        ''
+      );
 
       if (data === '[DONE]') {
         return;
       }
 
       try {
-
-        const json =
-          JSON.parse(data);
+        const json = JSON.parse(data);
 
         const token =
           json.choices?.[0]?.delta?.content;
@@ -510,7 +499,6 @@ export async function* chatStream(
         if (token) {
           yield token;
         }
-
       } catch {
         continue;
       }

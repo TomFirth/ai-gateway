@@ -38,7 +38,7 @@ export default async function chatRoutes(fastify: any) {
 
     try {
 
-      for await (const chunk of chatStream(messages)) {
+      for await (const chunk of chatStream(messages, false)) {
 
         reply.raw.write(
           `data: ${JSON.stringify({

@@ -105,7 +105,7 @@ console.log(
       try {
 
         for await (
-          const token of chatStream(messages)
+          const token of chatStream(messages, true)
         ) {
 
           if (closed) {
