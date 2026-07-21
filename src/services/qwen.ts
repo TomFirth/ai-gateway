@@ -38,8 +38,8 @@ Rules:
 - Use tools when project information is required.
 - Never invent file contents.
 - Prefer small safe changes.
-- Use tool calls only through the provided functions.
-- Never output XML or JSON manually for tools.
+- Use tools only through function calls.
+- Never output XML tool calls manually.
 
 Available tools:
 git_status()
@@ -133,7 +133,7 @@ const tools = {
   },
 
   replace_text: {
-    description: 'Replace text inside a file.',
+    description: 'Replace text in a file.',
     run: replaceText,
     parameters: {
       type: 'object',
@@ -242,11 +242,7 @@ function trimMessages(
   let total = 0;
   const result: ChatMessage[] = [];
 
-  for (
-    let i = messages.length - 1;
-    i >= 0;
-    i--
-  ) {
+  for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
 
     if (!message) {
@@ -294,7 +290,10 @@ async function callQwenApi(
         signal: controller.signal,
         body: JSON.stringify({
           model: 'qwen2.5-coder',
-          messages: trimMessages(messages),
+          messages: [
+            messages[0],
+            ...trimMessages(messages.slice(1))
+          ].filter(Boolean),
           temperature: useTools ? 0.05 : 0.2,
           top_p: 0.9,
           max_tokens: 256,
@@ -310,14 +309,211 @@ async function callQwenApi(
     );
 
     if (!response.ok) {
-      throw new Error(
-        await response.text()
-      );
+      throw new Error(await response.text());
     }
 
     return response;
 
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+export async function chat(
+  messages: ChatMessage[],
+  useTools = false
+): Promise<string> {
+
+  const conversation: ChatMessage[] = [
+    {
+      role: 'system',
+      content: useTools
+        ? CODING_SYSTEM_PROMPT
+        : GENERAL_SYSTEM_PROMPT
+    },
+    ...messages
+  ];
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+
+    const response = await callQwenApi(
+      conversation,
+      useTools
+    );
+
+    const payload = await response.json();
+
+    const assistant =
+      payload.choices?.[0]?.message;
+
+    if (!assistant) {
+      throw new Error(
+        'Missing assistant response'
+      );
+    }
+
+    if (assistant.tool_calls?.length) {
+
+      conversation.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: assistant.tool_calls
+      });
+
+      for (const call of assistant.tool_calls) {
+
+        const name = call.function.name;
+
+        if (!isToolName(name)) {
+          continue;
+        }
+
+        const tool = tools[name];
+
+        let args: Record<string, unknown> = {};
+
+        try {
+          args = JSON.parse(
+            call.function.arguments || '{}'
+          );
+        } catch {
+          console.error(
+            'Invalid tool args:',
+            call.function.arguments
+          );
+        }
+
+        const result = await (
+          tool.run as (...args: any[]) => Promise<string>
+        )(
+          ...Object.values(args)
+        );
+
+        conversation.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: String(result)
+        });
+      }
+
+      continue;
+    }
+
+    const text = assistant.content ?? '';
+
+    const fallback = parseToolCall(text);
+
+    if (!fallback) {
+      return text;
+    }
+
+    const result = await (
+      tools[fallback.name].run as (...args: any[]) => Promise<string>
+    )(
+      ...Object.values(fallback.arguments)
+    );
+
+    conversation.push({
+      role: 'assistant',
+      content: text
+    });
+
+    conversation.push({
+      role: 'tool',
+      content: String(result)
+    });
+  }
+
+  return 'Unable to complete request.';
+}
+
+export async function* chatStream(
+  messages: ChatMessage[]
+) {
+  const response = await callQwenApi(
+    [
+      {
+        role: 'system',
+        content: GENERAL_SYSTEM_PROMPT
+      },
+      ...messages
+    ],
+    false,
+    true
+  );
+
+  if (!response.body) {
+    throw new Error(
+      'No stream body'
+    );
+  }
+
+  const reader =
+    response.body.getReader();
+
+  const decoder =
+    new TextDecoder();
+
+  let buffer = '';
+
+  while (true) {
+
+    const {
+      done,
+      value
+    } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(
+      value,
+      {
+        stream: true
+      }
+    );
+
+    while (buffer.includes('\n\n')) {
+
+      const index =
+        buffer.indexOf('\n\n');
+
+      const event =
+        buffer.slice(0, index);
+
+      buffer =
+        buffer.slice(index + 2);
+
+      if (!event.startsWith('data:')) {
+        continue;
+      }
+
+      const data =
+        event.replace(
+          /^data:\s*/,
+          ''
+        );
+
+      if (data === '[DONE]') {
+        return;
+      }
+
+      try {
+
+        const json =
+          JSON.parse(data);
+
+        const token =
+          json.choices?.[0]?.delta?.content;
+
+        if (token) {
+          yield token;
+        }
+
+      } catch {
+        continue;
+      }
+    }
   }
 }
