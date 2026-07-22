@@ -91,18 +91,24 @@ export default async function openaiRoutes(fastify: any) {
               finish_reason: finishReason
             }]
           };
-          raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+          const data = `data: ${JSON.stringify(chunk)}\n\n`;
+          console.log(`[stream] sending chunk: ${data.trim()}`);
+          raw.write(data);
         };
 
         // CRITICAL: Send initial assistant role to trigger the UI in VS Code
         sendChunk({ role: 'assistant' });
 
         try {
+          console.log('[stream] starting chatStream');
           for await (const chunk of chatStream(activeMessages)) {
-            if (closed) break;
+            if (closed) {
+              console.log('[stream] connection closed by client');
+              break;
+            }
 
             if (chunk.comment) {
-              // Standard SSE comment to keep the connection alive
+              console.log(`[stream] sending comment: ${chunk.comment}`);
               raw.write(`: ${chunk.comment}\n\n`);
               continue;
             }

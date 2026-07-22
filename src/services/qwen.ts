@@ -420,6 +420,7 @@ export async function* chatStream(
           );
 
         if (!event.startsWith('data:')) {
+          console.log(`[Qwen API] non-data event: ${event}`);
           continue;
         }
 
@@ -429,7 +430,8 @@ export async function* chatStream(
             ''
           );
 
-        if (data === '[DONE]') {
+        if (data.trim() === '[DONE]') {
+          console.log('[Qwen API] received [DONE]');
           break;
         }
 
@@ -444,6 +446,7 @@ export async function* chatStream(
 
           if (delta.content !== undefined) {
             const content = delta.content ?? '';
+            // console.log(`[Qwen API] token: ${content}`);
             fullContent += content;
             yield { content };
             hasYieldedAnything = true;
