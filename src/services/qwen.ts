@@ -389,7 +389,9 @@ export async function* chatStream(
       buffer += decoder.decode(value, {
         stream: true
       });
+      console.log(JSON.stringify(buffer));
 
+      buffer = buffer.replace(/\r\n/g, "\n");
       while (buffer.includes('\n\n')) {
         const index = buffer.indexOf('\n\n');
         const event = buffer.slice(0, index);
@@ -415,6 +417,7 @@ export async function* chatStream(
         try {
           const json = JSON.parse(data);
           const delta = json.choices?.[0]?.delta;
+          console.log("[LLAMA DELTA]", JSON.stringify(delta));
 
           if (!delta) {
             continue;
@@ -427,6 +430,10 @@ export async function* chatStream(
 
           if (delta.content !== undefined) {
             fullContent += delta.content;
+            console.log("[QWEN YIELD]", JSON.stringify({
+                content: delta.content,
+                tool_calls: delta.tool_calls
+            }));
             yield {
               content: delta.content
             };
@@ -436,6 +443,10 @@ export async function* chatStream(
             toolCalls.push(
               ...delta.tool_calls
             );
+            console.log("[QWEN YIELD]", JSON.stringify({
+                content: delta.content,
+                tool_calls: delta.tool_calls
+            }));
             yield {
               tool_calls: delta.tool_calls
             };

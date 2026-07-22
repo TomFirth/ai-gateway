@@ -61,6 +61,7 @@ export default async function openaiRoutes(fastify: any) {
 
 
       if (stream) {
+        // remember to check if hijack is working as expected
         reply.hijack();
         const raw = reply.raw;
 
@@ -128,6 +129,7 @@ export default async function openaiRoutes(fastify: any) {
                 delta.role = 'assistant';
                 roleSent = true;
               }
+              console.log("[OPENAI SEND]", JSON.stringify(delta));
               sendChunk(delta);
             }
           }
