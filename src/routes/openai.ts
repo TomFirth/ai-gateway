@@ -73,6 +73,7 @@ export default async function openaiRoutes(fastify: any) {
         const id = `chatcmpl-${Date.now()}`;
         const created = Math.floor(Date.now() / 1000);
         let closed = false;
+        let roleSent = false;
 
         request.raw.on('close', () => {
           closed = true;
@@ -92,12 +93,17 @@ export default async function openaiRoutes(fastify: any) {
             }]
           };
           const data = `data: ${JSON.stringify(chunk)}\n\n`;
-          console.log(`[stream] sending chunk: ${data.trim()}`);
+          // console.log(`[stream] chunk: ${data.trim()}`);
           raw.write(data);
         };
 
-        // CRITICAL: Send initial assistant role to trigger the UI in VS Code
-        sendChunk({ role: 'assistant' });
+        const heartbeat = setInterval(() => {
+          if (!closed) {
+            raw.write(': heartbeat\n\n');
+          } else {
+            clearInterval(heartbeat);
+          }
+        }, 15000);
 
         try {
           console.log('[stream] starting chatStream');
@@ -108,17 +114,23 @@ export default async function openaiRoutes(fastify: any) {
             }
 
             if (chunk.comment) {
-              console.log(`[stream] sending comment: ${chunk.comment}`);
+              console.log(`[stream] comment: ${chunk.comment}`);
               raw.write(`: ${chunk.comment}\n\n`);
               continue;
             }
 
             if (chunk.content !== undefined) {
-              sendChunk({ content: chunk.content });
+              const delta: any = { content: chunk.content };
+              if (!roleSent) {
+                delta.role = 'assistant';
+                roleSent = true;
+              }
+              sendChunk(delta);
             }
           }
 
           if (!closed) {
+            if (!roleSent) sendChunk({ role: 'assistant', content: '' });
             sendChunk({}, 'stop');
             raw.write('data: [DONE]\n\n');
           }
@@ -130,6 +142,7 @@ export default async function openaiRoutes(fastify: any) {
             })}\n\n`);
           }
         } finally {
+          clearInterval(heartbeat);
           raw.end();
         }
         return;
