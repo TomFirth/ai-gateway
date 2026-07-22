@@ -114,7 +114,7 @@ export default async function openaiRoutes(fastify: any) {
             }
 
             if (chunk.comment) {
-              console.log(`[stream] comment: ${chunk.comment}`);
+              // Forward comments immediately as heartbeats to keep VS Code alive
               raw.write(`: ${chunk.comment}\n\n`);
               continue;
             }

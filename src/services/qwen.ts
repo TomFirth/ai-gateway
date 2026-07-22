@@ -420,7 +420,8 @@ export async function* chatStream(
           );
 
         if (!event.startsWith('data:')) {
-          console.log(`[Qwen API] non-data event: ${event}`);
+          // Forward comments/heartbeats from llama-server to the generator
+          yield { comment: event.startsWith(':') ? event.slice(1).trim() || 'heartbeat' : event };
           continue;
         }
 
@@ -431,7 +432,7 @@ export async function* chatStream(
           );
 
         if (data.trim() === '[DONE]') {
-          console.log('[Qwen API] received [DONE]');
+          // console.log('[Qwen API] received [DONE]');
           break;
         }
 
