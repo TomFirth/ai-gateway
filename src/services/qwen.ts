@@ -360,113 +360,106 @@ export async function* chatStream(
   let currentMessages = [...messages];
 
   while (true) {
-    const response =
-      await callQwenApi(
-        currentMessages,
-        {
-          stream: true,
-          tools: true
-        }
-      );
+    const response = await callQwenApi(
+      currentMessages,
+      {
+        stream: true,
+        tools: true
+      }
+    );
 
     if (!response.body) {
-      throw new Error(
-        'No response body'
-      );
+      throw new Error('No response body');
     }
 
-    const reader =
-      response.body.getReader();
-
-    const decoder =
-      new TextDecoder();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
     let buffer = '';
     let fullContent = '';
     let toolCalls: any[] = [];
-    let hasYieldedAnything = false;
 
     while (true) {
-      const {
-        done,
-        value
-      } =
-        await reader.read();
+      const { done, value } = await reader.read();
 
       if (done) {
         break;
       }
 
-      buffer += decoder.decode(
-        value,
-        {
-          stream: true
-        }
-      );
+      buffer += decoder.decode(value, {
+        stream: true
+      });
 
       while (buffer.includes('\n\n')) {
-        const index =
-          buffer.indexOf('\n\n');
-
-        const event =
-          buffer.slice(
-            0,
-            index
-          );
-
-        buffer =
-          buffer.slice(
-            index + 2
-          );
+        const index = buffer.indexOf('\n\n');
+        const event = buffer.slice(0, index);
+        buffer = buffer.slice(index + 2);
 
         if (!event.startsWith('data:')) {
-          // Forward comments/heartbeats from llama-server to the generator
-          yield { comment: event.startsWith(':') ? event.slice(1).trim() || 'heartbeat' : event };
+          if (event.startsWith(':')) {
+            yield {
+              comment: event
+                .slice(1)
+                .trim()
+            };
+          }
           continue;
         }
 
-        const data =
-          event.replace(
-            /^data:\s*/,
-            ''
-          );
+        const data = event.replace(/^data:\s*/, '');
 
         if (data.trim() === '[DONE]') {
-          // console.log('[Qwen API] received [DONE]');
           break;
         }
 
         try {
-          const json =
-            JSON.parse(data);
+          const json = JSON.parse(data);
+          const delta = json.choices?.[0]?.delta;
 
-          const delta =
-            json.choices?.[0]?.delta;
+          if (!delta) {
+            continue;
+          }
 
-          if (!delta) continue;
+          console.log(
+            '[Qwen delta]',
+            JSON.stringify(delta)
+          );
 
-            if (chunk.content !== undefined || chunk.tool_calls !== undefined) {
-              const delta: any = {};
-              if (chunk.content !== undefined) delta.content = chunk.content;
-              if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
+          if (delta.content !== undefined) {
+            fullContent += delta.content;
+            yield {
+              content: delta.content
+            };
+          }
 
-              // console.log(`[Qwen API] delta:`, delta);
-              yield delta;
-              hasYieldedAnything = true;
-            }
-        } catch {
-          continue;
+          if (delta.tool_calls) {
+            toolCalls.push(
+              ...delta.tool_calls
+            );
+            yield {
+              tool_calls: delta.tool_calls
+            };
+          }
+        } catch (err) {
+          console.error(
+            '[Qwen stream parse error]',
+            err,
+            event
+          );
         }
       }
     }
 
+
     if (toolCalls.length > 0) {
-      // Clean up the accumulated tool calls (remove potential empty slots)
-      const validToolCalls = toolCalls.filter(tc => tc && tc.function.name);
+      const validToolCalls =
+        toolCalls.filter(
+          tc => tc?.function?.name
+        );
+      if (validToolCalls.length === 0) {
+        break;
+      }
 
-      if (validToolCalls.length === 0) break;
-
-      // Add assistant message with tool calls to history
       currentMessages.push({
         role: 'assistant',
         content: fullContent || null,
@@ -474,14 +467,18 @@ export async function* chatStream(
       });
 
       for (const toolCall of validToolCalls) {
-        const name =
-          toolCall.function.name as ToolName;
-
+        const name = toolCall.function.name as ToolName;
         let args = {};
+
         try {
-          args = JSON.parse(toolCall.function.arguments);
-        } catch (e) {
-          console.error('Failed to parse streamed tool arguments', toolCall.function.arguments);
+          args = JSON.parse(
+            toolCall.function.arguments
+          );
+        } catch {
+          console.error(
+            'Failed parsing tool args',
+            toolCall.function.arguments
+          );
         }
 
         console.log(
@@ -489,25 +486,25 @@ export async function* chatStream(
           args
         );
 
-        yield { comment: `Executing ${name}...` };
+        yield {
+          comment: `Executing ${name}...`
+        };
 
         let result;
+
         try {
           if (tools[name]) {
-            result =
-              await (tools[name] as any).run(
-                args
-              );
-            console.log(`[tool stream] ${name} success`);
+            result = await (tools[name] as any).run(args);
           } else {
-            result =
-              `Tool ${name} not found`;
-            console.warn(`[tool stream] ${name} not found`);
+            result = `Tool ${name} not found`;
           }
-        } catch (e) {
+        } catch (err) {
           result =
-            `Error: ${e instanceof Error ? e.message : String(e)}`;
-          console.error(`[tool stream] ${name} error:`, result);
+            `Error: ${
+              err instanceof Error
+                ? err.message
+                : String(err)
+            }`;
         }
 
         currentMessages.push({
@@ -519,11 +516,8 @@ export async function* chatStream(
               : JSON.stringify(result)
         });
       }
-      // Continue the while loop to get the next response after tool execution
       continue;
     }
-
-    // No tool calls, we are finished
     break;
   }
 }
