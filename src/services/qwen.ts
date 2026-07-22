@@ -428,15 +428,19 @@ export async function* chatStream(
             JSON.stringify(delta)
           );
 
-          if (delta.content !== undefined) {
-            fullContent += delta.content;
-            console.log("[QWEN YIELD]", JSON.stringify({
-                content: delta.content,
-                tool_calls: delta.tool_calls
-            }));
-            yield {
-              content: delta.content
-            };
+          if (typeof delta.content === 'string') {
+              fullContent += delta.content;
+
+              console.log(
+                  '[QWEN YIELD]',
+                  JSON.stringify({
+                      content: delta.content
+                  })
+              );
+
+              yield {
+                  content: delta.content
+              };
           }
 
           if (delta.tool_calls) {
