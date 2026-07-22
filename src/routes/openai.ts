@@ -119,8 +119,11 @@ export default async function openaiRoutes(fastify: any) {
               continue;
             }
 
-            if (chunk.content !== undefined) {
-              const delta: any = { content: chunk.content };
+            if (chunk.content !== undefined || chunk.tool_calls !== undefined) {
+              const delta: any = {};
+              if (chunk.content !== undefined) delta.content = chunk.content;
+              if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
+
               if (!roleSent) {
                 delta.role = 'assistant';
                 roleSent = true;

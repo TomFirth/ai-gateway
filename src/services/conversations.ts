@@ -2,7 +2,7 @@ import { mkdir, readFile as fsReadFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { getCurrentProjectRoot } from './project.js';
 
-const STORAGE_FILE = path.resolve(process.env.HOME ?? '.', '.local', 'share', 'ai-gateway', 'conversations.json');
+const STORAGE_FILE = process.env.CONVERSATIONS_STORAGE_FILE ?? path.resolve(process.env.HOME ?? '.', '.local', 'share', 'ai-gateway', 'conversations.json');
 let conversationsCache: ConversationRecord[] | null = null;
 
 export type ConversationRole = 'user' | 'assistant' | 'system';

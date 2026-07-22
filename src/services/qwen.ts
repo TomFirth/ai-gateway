@@ -445,36 +445,15 @@ export async function* chatStream(
 
           if (!delta) continue;
 
-          if (delta.content !== undefined) {
-            const content = delta.content ?? '';
-            // console.log(`[Qwen API] token: ${content}`);
-            fullContent += content;
-            yield { content };
-            hasYieldedAnything = true;
-          }
+            if (chunk.content !== undefined || chunk.tool_calls !== undefined) {
+              const delta: any = {};
+              if (chunk.content !== undefined) delta.content = chunk.content;
+              if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
 
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!toolCalls[idx]) {
-                toolCalls[idx] = {
-                  id: tc.id,
-                  type: 'function',
-                  function: {
-                    name: '',
-                    arguments: ''
-                  }
-                };
-              }
-              if (tc.id) toolCalls[idx].id = tc.id;
-              if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
-              if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
-
-              // Also yield the tool call delta so the UI can show progress
-              yield { tool_calls: [tc] };
+              // console.log(`[Qwen API] delta:`, delta);
+              yield delta;
               hasYieldedAnything = true;
             }
-          }
         } catch {
           continue;
         }
