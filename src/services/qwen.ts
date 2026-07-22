@@ -282,10 +282,9 @@ export async function chat(
       await callQwenApi(
         currentMessages,
         {
-          tools: false
+          tools: true
         }
       );
-      // tools: false after debugging
 
     const json =
       await response.json();
@@ -365,10 +364,9 @@ export async function* chatStream(
       currentMessages,
       {
         stream: true,
-        tools: false
+        tools: true
       }
     );
-    // tools: true return after debugging
 
     if (!response.body) {
       throw new Error('No response body');
