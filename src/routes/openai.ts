@@ -126,10 +126,13 @@ export default async function openaiRoutes(fastify: any) {
               if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
 
               if (!roleSent) {
-                delta.role = 'assistant';
-                roleSent = true;
+                  sendChunk({
+                      role: 'assistant'
+                  });
+
+                  roleSent = true;
               }
-              console.log("[OPENAI SEND]", JSON.stringify(delta));
+
               sendChunk(delta);
             }
           }

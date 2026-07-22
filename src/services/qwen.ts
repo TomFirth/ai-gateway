@@ -364,9 +364,10 @@ export async function* chatStream(
       currentMessages,
       {
         stream: true,
-        tools: true
+        tools: false
       }
     );
+    // tools: true return after debugging
 
     if (!response.body) {
       throw new Error('No response body');
