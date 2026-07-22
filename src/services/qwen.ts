@@ -222,6 +222,7 @@ async function callQwenApi(
     'http://192.168.1.81:8080';
 
 
+  console.log(`[Qwen API] Calling ${url}/v1/chat/completions (stream=${options?.stream})`);
   const response = await fetch(
     `${url}/v1/chat/completions`,
     {
@@ -514,13 +515,16 @@ export async function* chatStream(
               await (tools[name] as any).run(
                 args
               );
+            console.log(`[tool stream] ${name} success`);
           } else {
             result =
               `Tool ${name} not found`;
+            console.warn(`[tool stream] ${name} not found`);
           }
         } catch (e) {
           result =
             `Error: ${e instanceof Error ? e.message : String(e)}`;
+          console.error(`[tool stream] ${name} error:`, result);
         }
 
         currentMessages.push({

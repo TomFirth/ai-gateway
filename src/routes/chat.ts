@@ -81,8 +81,7 @@ export default async function chatRoutes(fastify: any) {
 
     const result =
       await chat(
-        messages,
-        false
+        messages
       );
 
     return {

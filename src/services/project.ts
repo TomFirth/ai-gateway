@@ -1,6 +1,6 @@
 import path from 'path';
 
-const BASE_PROJECTS_ROOT = path.resolve(process.env.HOME ?? '', 'ai', 'projects');
+const BASE_PROJECTS_ROOT = process.env.PROJECTS_ROOT ?? process.cwd();
 let currentProjectRoot: string | null = null;
 
 function isPathInsideRoot(root: string, fullPath: string): boolean {
