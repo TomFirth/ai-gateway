@@ -80,22 +80,34 @@ export default async function openaiRoutes(fastify: any) {
           closed = true;
         });
 
-        const sendChunk = (delta: any, finishReason: string | null = null) => {
+        const sendChunk = (
+          delta: any,
+          finishReason: string | null = null
+        ) => {
           if (closed) return;
+
           const chunk = {
             id,
             object: 'chat.completion.chunk',
             created,
             model: modelName,
-            choices: [{
-              index: 0,
-              delta,
-              finish_reason: finishReason
-            }]
+            choices: [
+              {
+                index: 0,
+                delta,
+                finish_reason: finishReason
+              }
+            ]
           };
-          const data = `data: ${JSON.stringify(chunk)}\n\n`;
-          // console.log(`[stream] chunk: ${data.trim()}`);
+
+          const data =
+            `data: ${JSON.stringify(chunk)}\n\n`;
+
+          console.log('[SSE SEND]', data);
+
           raw.write(data);
+
+          raw.flush?.();
         };
 
         const heartbeat = setInterval(() => {
@@ -126,11 +138,11 @@ export default async function openaiRoutes(fastify: any) {
               if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
 
               if (!roleSent) {
-                  sendChunk({
-                      role: 'assistant'
-                  });
+                sendChunk({
+                  role: 'assistant'
+                });
 
-                  roleSent = true;
+                roleSent = true;
               }
 
               sendChunk(delta);
