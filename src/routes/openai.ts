@@ -59,110 +59,90 @@ export default async function openaiRoutes(fastify: any) {
         `[chat] ${messages.length} incoming -> sending ${activeMessages.length} | stream=${stream}`
       );
 
-
       if (stream) {
-        // remember to check if hijack is working as expected
         reply.hijack();
+
         const raw = reply.raw;
 
-        raw.setHeader('Content-Type', 'text/event-stream');
-        raw.setHeader('Cache-Control', 'no-cache, no-transform');
-        raw.setHeader('Connection', 'keep-alive');
-        raw.setHeader('X-Accel-Buffering', 'no');
-        raw.flushHeaders?.();
+        raw.setHeader(
+          'Content-Type',
+          'text/event-stream'
+        );
+
+        raw.setHeader(
+          'Cache-Control',
+          'no-cache'
+        );
+
+        raw.setHeader(
+          'Connection',
+          'keep-alive'
+        );
+
+        raw.setHeader(
+          'X-Accel-Buffering',
+          'no'
+        );
+
+        raw.flushHeaders();
+        raw.socket?.setNoDelay(true);
 
         const id = `chatcmpl-${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
-        let closed = false;
-        let roleSent = false;
 
-        request.raw.on('close', () => {
-          closed = true;
-        });
-
-        const sendChunk = (
-          delta: any,
-          finishReason: string | null = null
+        const send = (
+          content: string | null,
+          finish_reason: string | null = null
         ) => {
-          if (closed) return;
 
           const chunk = {
             id,
-            object: 'chat.completion.chunk',
-            created,
-            model: modelName,
-            choices: [
+            object:"chat.completion.chunk",
+            created:Math.floor(Date.now()/1000),
+            model:modelName,
+            choices:[
               {
-                index: 0,
-                delta,
-                finish_reason: finishReason
+                index:0,
+                delta:{
+                  content
+                },
+                finish_reason
               }
             ]
           };
 
-          const data =
-            `data: ${JSON.stringify(chunk)}\n\n`;
-
-          console.log('[SSE SEND]', data);
-
-          raw.write(data);
-
-          raw.flush?.();
+          raw.write(
+            `data: ${JSON.stringify(chunk)}\n\n`
+          );
         };
 
-        const heartbeat = setInterval(() => {
-          if (!closed) {
-            raw.write(': heartbeat\n\n');
-          } else {
-            clearInterval(heartbeat);
-          }
-        }, 15000);
-
         try {
-          console.log('[stream] starting chatStream');
-          for await (const chunk of chatStream(activeMessages)) {
-            if (closed) {
-              console.log('[stream] connection closed by client');
-              break;
+
+          for await (
+            const chunk of chatStream(activeMessages)
+          ) {
+
+            if (
+              typeof chunk.content === "string"
+            ) {
+              send(chunk.content);
             }
 
-            if (chunk.comment) {
-              // Forward comments immediately as heartbeats to keep VS Code alive
-              raw.write(`: ${chunk.comment}\n\n`);
-              continue;
-            }
-
-            if (chunk.content !== undefined || chunk.tool_calls !== undefined) {
-              const delta: any = {};
-              if (chunk.content !== undefined) delta.content = chunk.content;
-              if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
-
-              if (!roleSent) {
-                sendChunk({
-                  role: 'assistant'
-                });
-
-                roleSent = true;
-              }
-
-              sendChunk(delta);
-            }
           }
 
-          if (!closed) {
-            if (!roleSent) sendChunk({ role: 'assistant', content: '' });
-            sendChunk({}, 'stop');
-            raw.write('data: [DONE]\n\n');
-          }
-        } catch (error) {
-          console.error('[stream error]', error);
-          if (!closed) {
-            raw.write(`data: ${JSON.stringify({
-              error: { message: error instanceof Error ? error.message : 'Unknown error' }
-            })}\n\n`);
-          }
-        } finally {
-          clearInterval(heartbeat);
+          send(null,"stop");
+
+          raw.write(
+            "data: [DONE]\n\n"
+          );
+
+        } catch(err){
+          raw.write(
+            `data:${JSON.stringify({
+              error:String(err)
+            })}\n\n`
+          );
+        }
+        finally {
           raw.end();
         }
         return;
@@ -173,7 +153,6 @@ export default async function openaiRoutes(fastify: any) {
         await chat(
           activeMessages
         );
-
 
       return {
         id:
@@ -189,7 +168,6 @@ export default async function openaiRoutes(fastify: any) {
 
         model: modelName,
 
-
         choices: [
           {
             index: 0,
@@ -203,7 +181,6 @@ export default async function openaiRoutes(fastify: any) {
               'stop'
           }
         ],
-
 
         usage: {
           prompt_tokens: 0,

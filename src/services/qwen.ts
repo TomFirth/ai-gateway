@@ -282,9 +282,10 @@ export async function chat(
       await callQwenApi(
         currentMessages,
         {
-          tools: true
+          tools: false
         }
       );
+      // tools: false after debugging
 
     const json =
       await response.json();
@@ -420,7 +421,7 @@ export async function* chatStream(
           const delta = json.choices?.[0]?.delta;
           console.log("[LLAMA DELTA]", JSON.stringify(delta));
 
-          if (!delta) {
+          if (!delta || typeof delta.content !== "string") {
             continue;
           }
 
