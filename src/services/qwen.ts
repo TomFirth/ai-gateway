@@ -441,11 +441,10 @@ export async function* chatStream(
 
           if (!delta) continue;
 
-          if (delta.content) {
-            fullContent +=
-              delta.content;
-
-            yield { content: delta.content };
+          if (delta.content !== undefined) {
+            const content = delta.content ?? '';
+            fullContent += content;
+            yield { content };
             hasYieldedAnything = true;
           }
 

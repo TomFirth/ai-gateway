@@ -78,56 +78,45 @@ export default async function openaiRoutes(fastify: any) {
           closed = true;
         });
 
-        // Send an initial chunk to establish the role (common in OpenAI clients)
-        raw.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model: modelName,
-          choices: [{
-            index: 0,
-            delta: { role: 'assistant' },
-            finish_reason: null
-          }]
-        })}\n\n`);
+        const sendChunk = (delta: any, finishReason: string | null = null) => {
+          if (closed) return;
+          const chunk = {
+            id,
+            object: 'chat.completion.chunk',
+            created,
+            model: modelName,
+            choices: [{
+              index: 0,
+              delta,
+              finish_reason: finishReason
+            }]
+          };
+          raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        };
+
+        // CRITICAL: Send initial assistant role to trigger the UI in VS Code
+        sendChunk({ role: 'assistant' });
 
         try {
           for await (const chunk of chatStream(activeMessages)) {
             if (closed) break;
 
             if (chunk.comment) {
+              // Standard SSE comment to keep the connection alive
               raw.write(`: ${chunk.comment}\n\n`);
               continue;
             }
 
-            raw.write(`data: ${JSON.stringify({
-              id,
-              object: 'chat.completion.chunk',
-              created,
-              model: modelName,
-              choices: [{
-                index: 0,
-                delta: {
-                  content: chunk.content,
-                  tool_calls: chunk.tool_calls
-                },
-                finish_reason: null
-              }]
-            })}\n\n`);
+            if (chunk.content !== undefined || chunk.tool_calls !== undefined) {
+              const delta: any = {};
+              if (chunk.content !== undefined) delta.content = chunk.content;
+              if (chunk.tool_calls !== undefined) delta.tool_calls = chunk.tool_calls;
+              sendChunk(delta);
+            }
           }
 
           if (!closed) {
-            raw.write(`data: ${JSON.stringify({
-              id,
-              object: 'chat.completion.chunk',
-              created,
-              model: modelName,
-              choices: [{
-                index: 0,
-                delta: {},
-                finish_reason: 'stop'
-              }]
-            })}\n\n`);
+            sendChunk({}, 'stop');
             raw.write('data: [DONE]\n\n');
           }
         } catch (error) {
