@@ -49,166 +49,104 @@ export default async function openaiRoutes(fastify: any) {
         model ?? 'qwen2.5-coder';
 
 
+      // Only send the latest message to avoid redundant history and filter out system messages.
+      const activeMessages = messages
+        .filter(m => m.role !== 'system')
+        .slice(-1);
+
+
       console.log(
-        `[chat] ${messages.length} messages | stream=${stream}`
+        `[chat] ${messages.length} incoming -> sending ${activeMessages.length} | stream=${stream}`
       );
 
 
       if (stream) {
-
         reply.hijack();
+        const raw = reply.raw;
 
-
-        const raw =
-          reply.raw;
-
-
-        raw.setHeader(
-          'Content-Type',
-          'text/event-stream'
-        );
-
-        raw.setHeader(
-          'Cache-Control',
-          'no-cache, no-transform'
-        );
-
-        raw.setHeader(
-          'Connection',
-          'keep-alive'
-        );
-
-        raw.setHeader(
-          'X-Accel-Buffering',
-          'no'
-        );
-
-
+        raw.setHeader('Content-Type', 'text/event-stream');
+        raw.setHeader('Cache-Control', 'no-cache, no-transform');
+        raw.setHeader('Connection', 'keep-alive');
+        raw.setHeader('X-Accel-Buffering', 'no');
         raw.flushHeaders?.();
 
-
-        const id =
-          `chatcmpl-${Date.now()}`;
-
-
-        const created =
-          Math.floor(
-            Date.now() / 1000
-          );
-
-
+        const id = `chatcmpl-${Date.now()}`;
+        const created = Math.floor(Date.now() / 1000);
         let closed = false;
 
+        request.raw.on('close', () => {
+          closed = true;
+        });
 
-        request.raw.on(
-          'close',
-          () => {
-            closed = true;
-          }
-        );
-
+        // Send an initial chunk to establish the role (common in OpenAI clients)
+        raw.write(`data: ${JSON.stringify({
+          id,
+          object: 'chat.completion.chunk',
+          created,
+          model: modelName,
+          choices: [{
+            index: 0,
+            delta: { role: 'assistant' },
+            finish_reason: null
+          }]
+        })}\n\n`);
 
         try {
+          for await (const chunk of chatStream(activeMessages)) {
+            if (closed) break;
 
-          for await (
-            const token of chatStream(
-              messages
-            )
-          ) {
-
-            if (closed) {
-              break;
+            if (chunk.comment) {
+              raw.write(`: ${chunk.comment}\n\n`);
+              continue;
             }
 
-
-            raw.write(
-              `data: ${JSON.stringify({
-                id,
-                object:
-                  'chat.completion.chunk',
-                created,
-                model: modelName,
-
-                choices: [
-                  {
-                    index: 0,
-
-                    delta: {
-                      content: token
-                    },
-
-                    finish_reason: null
-                  }
-                ]
-              })}\n\n`
-            );
+            raw.write(`data: ${JSON.stringify({
+              id,
+              object: 'chat.completion.chunk',
+              created,
+              model: modelName,
+              choices: [{
+                index: 0,
+                delta: {
+                  content: chunk.content,
+                  tool_calls: chunk.tool_calls
+                },
+                finish_reason: null
+              }]
+            })}\n\n`);
           }
-
 
           if (!closed) {
-
-            raw.write(
-              `data: ${JSON.stringify({
-                id,
-                object:
-                  'chat.completion.chunk',
-                created,
-                model: modelName,
-
-                choices: [
-                  {
-                    index: 0,
-                    delta: {},
-                    finish_reason: 'stop'
-                  }
-                ]
-              })}\n\n`
-            );
-
-
-            raw.write(
-              'data: [DONE]\n\n'
-            );
+            raw.write(`data: ${JSON.stringify({
+              id,
+              object: 'chat.completion.chunk',
+              created,
+              model: modelName,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: 'stop'
+              }]
+            })}\n\n`);
+            raw.write('data: [DONE]\n\n');
           }
-
-
         } catch (error) {
-
-          console.error(
-            '[stream error]',
-            error
-          );
-
-
+          console.error('[stream error]', error);
           if (!closed) {
-
-            raw.write(
-              `data: ${JSON.stringify({
-                error: {
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : 'Unknown error'
-                }
-              })}\n\n`
-            );
-
+            raw.write(`data: ${JSON.stringify({
+              error: { message: error instanceof Error ? error.message : 'Unknown error' }
+            })}\n\n`);
           }
-
         } finally {
-
           raw.end();
-
         }
-
-
         return;
       }
 
 
       const response =
         await chat(
-          messages
+          activeMessages
         );
 
 

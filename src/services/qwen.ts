@@ -202,7 +202,10 @@ function trimMessages(
 function cleanMessages(
   messages: ChatMessage[]
 ) {
-  return messages;
+  return messages.filter(
+    message =>
+      message.role !== 'system'
+  );
 }
 
 
@@ -352,7 +355,7 @@ export async function chat(
 
 export async function* chatStream(
   messages: ChatMessage[]
-): AsyncGenerator<string> {
+): AsyncGenerator<{ content?: string; tool_calls?: any[]; comment?: string }> {
   let currentMessages = [...messages];
 
   while (true) {
@@ -380,6 +383,7 @@ export async function* chatStream(
     let buffer = '';
     let fullContent = '';
     let toolCalls: any[] = [];
+    let hasYieldedAnything = false;
 
     while (true) {
       const {
@@ -441,7 +445,8 @@ export async function* chatStream(
             fullContent +=
               delta.content;
 
-            yield delta.content;
+            yield { content: delta.content };
+            hasYieldedAnything = true;
           }
 
           if (delta.tool_calls) {
@@ -460,6 +465,10 @@ export async function* chatStream(
               if (tc.id) toolCalls[idx].id = tc.id;
               if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
               if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+
+              // Also yield the tool call delta so the UI can show progress
+              yield { tool_calls: [tc] };
+              hasYieldedAnything = true;
             }
           }
         } catch {
@@ -469,15 +478,19 @@ export async function* chatStream(
     }
 
     if (toolCalls.length > 0) {
+      // Clean up the accumulated tool calls (remove potential empty slots)
+      const validToolCalls = toolCalls.filter(tc => tc && tc.function.name);
+
+      if (validToolCalls.length === 0) break;
+
       // Add assistant message with tool calls to history
       currentMessages.push({
         role: 'assistant',
         content: fullContent || null,
-        tool_calls: toolCalls.filter(tc => tc)
+        tool_calls: validToolCalls
       });
 
-      for (const toolCall of toolCalls) {
-        if (!toolCall) continue;
+      for (const toolCall of validToolCalls) {
         const name =
           toolCall.function.name as ToolName;
 
@@ -492,6 +505,8 @@ export async function* chatStream(
           `[tool stream] ${name}`,
           args
         );
+
+        yield { comment: `Executing ${name}...` };
 
         let result;
         try {
