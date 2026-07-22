@@ -24,17 +24,17 @@ function execShell(command: string, cwd: string): Promise<{ stdout: string; stde
 }
 
 export async function runTests(): Promise<string> {
-  return runNpm('test');
+  return runNpm({ args: 'test' });
 }
 
-export async function runNpm(args = 'install'): Promise<string> {
+export async function runNpm({ args = 'install' }: { args?: string } = {}): Promise<string> {
   const cwd = getCurrentProjectRoot();
   const argv = parseArgs(args.length ? args : 'install');
   const result = await execFile('npm', argv, { cwd, encoding: 'utf8' });
   return result.stdout.trim() || result.stderr.trim() || 'No output.';
 }
 
-export async function terminal(command: string): Promise<string> {
+export async function terminal({ command }: { command: string }): Promise<string> {
   if (!command?.trim()) {
     throw new Error('terminal command must not be empty');
   }

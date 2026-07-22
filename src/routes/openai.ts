@@ -49,19 +49,8 @@ export default async function openaiRoutes(fastify: any) {
         model ?? 'qwen2.5-coder';
 
 
-      /*
-        Continue sends its own agent system prompt.
-        Remove it before sending to Qwen.
-      */
-      const cleanMessages =
-        messages.filter(
-          message =>
-            message.role !== 'system'
-        );
-
-
       console.log(
-        `[chat] ${cleanMessages.length} messages | stream=${stream}`
+        `[chat] ${messages.length} messages | stream=${stream}`
       );
 
 
@@ -123,7 +112,7 @@ export default async function openaiRoutes(fastify: any) {
 
           for await (
             const token of chatStream(
-              cleanMessages
+              messages
             )
           ) {
 
@@ -219,7 +208,7 @@ export default async function openaiRoutes(fastify: any) {
 
       const response =
         await chat(
-          cleanMessages
+          messages
         );
 
 

@@ -14,7 +14,7 @@ export async function gitStatus(): Promise<string> {
   return execGit(['status', '--short']);
 }
 
-export async function gitDiff(path?: string): Promise<string> {
+export async function gitDiff({ path }: { path?: string } = {}): Promise<string> {
   if (path?.trim()) {
     return execGit(['diff', '--', path.trim()]);
   }
@@ -22,7 +22,7 @@ export async function gitDiff(path?: string): Promise<string> {
   return execGit(['diff']);
 }
 
-export async function gitLog(count = '20'): Promise<string> {
+export async function gitLog({ count = 20 }: { count?: string | number } = {}): Promise<string> {
   const parsedCount = Number(count);
   const maxCount = Number.isInteger(parsedCount) && parsedCount > 0 ? parsedCount : 20;
 

@@ -23,8 +23,8 @@ async function walkDirectory(directory: string, callback: (filePath: string) => 
   }
 }
 
-export async function searchText(query: string): Promise<string> {
-  if (!query.trim()) {
+export async function searchText({ query }: { query: string }): Promise<string> {
+  if (!query?.trim()) {
     throw new Error('searchText query must not be empty');
   }
 

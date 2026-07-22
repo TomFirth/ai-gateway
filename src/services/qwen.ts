@@ -202,10 +202,7 @@ function trimMessages(
 function cleanMessages(
   messages: ChatMessage[]
 ) {
-  return messages.filter(
-    message =>
-      message.role !== 'system'
-  );
+  return messages;
 }
 
 
@@ -274,141 +271,258 @@ async function callQwenApi(
 export async function chat(
   messages: ChatMessage[]
 ) {
+  let currentMessages = [...messages];
 
-  const response =
-    await callQwenApi(
-      messages,
-      {
-        tools:true
+  while (true) {
+    const response =
+      await callQwenApi(
+        currentMessages,
+        {
+          tools: true
+        }
+      );
+
+    const json =
+      await response.json();
+
+    const message =
+      json.choices?.[0]
+        ?.message;
+
+    if (!message) {
+      return '';
+    }
+
+    currentMessages.push(message);
+
+    if (
+      message.tool_calls &&
+      message.tool_calls.length > 0
+    ) {
+      for (const toolCall of message.tool_calls) {
+        const name =
+          toolCall.function.name as ToolName;
+
+        let args = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          console.error('Failed to parse tool arguments', toolCall.function.arguments);
+        }
+
+        console.log(
+          `[tool] ${name}`,
+          args
+        );
+
+        let result;
+        try {
+          if (tools[name]) {
+            result =
+              await (tools[name] as any).run(
+                args
+              );
+          } else {
+            result =
+              `Tool ${name} not found`;
+          }
+        } catch (e) {
+          result =
+            `Error: ${e instanceof Error ? e.message : String(e)}`;
+        }
+
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content:
+            typeof result === 'string'
+              ? result
+              : JSON.stringify(result)
+        });
       }
-    );
+      // Continue loop to get response after tool results
+      continue;
+    }
 
-
-  const json =
-    await response.json();
-
-
-  return (
-    json
-      .choices?.[0]
-      ?.message
-      ?.content ?? ''
-  );
+    return message.content ?? '';
+  }
 }
 
 
 
 export async function* chatStream(
   messages: ChatMessage[]
-) {
+): AsyncGenerator<string> {
+  let currentMessages = [...messages];
 
-  const response =
-    await callQwenApi(
-      messages,
-      {
-        stream:true
-      }
-    );
+  while (true) {
+    const response =
+      await callQwenApi(
+        currentMessages,
+        {
+          stream: true,
+          tools: true
+        }
+      );
 
-
-  if (!response.body) {
-    throw new Error(
-      'No response body'
-    );
-  }
-
-
-  const reader =
-    response.body.getReader();
-
-
-  const decoder =
-    new TextDecoder();
-
-
-  let buffer='';
-
-
-  while(true){
-
-    const {
-      done,
-      value
-    } =
-      await reader.read();
-
-
-    if(done){
-      break;
+    if (!response.body) {
+      throw new Error(
+        'No response body'
+      );
     }
 
+    const reader =
+      response.body.getReader();
 
-    buffer += decoder.decode(
-      value,
-      {
-        stream:true
-      }
-    );
+    const decoder =
+      new TextDecoder();
 
+    let buffer = '';
+    let fullContent = '';
+    let toolCalls: any[] = [];
 
-    while(buffer.includes('\n\n')){
+    while (true) {
+      const {
+        done,
+        value
+      } =
+        await reader.read();
 
-      const index =
-        buffer.indexOf('\n\n');
-
-
-      const event =
-        buffer.slice(
-          0,
-          index
-        );
-
-
-      buffer =
-        buffer.slice(
-          index + 2
-        );
-
-
-      if(!event.startsWith('data:')){
-        continue;
+      if (done) {
+        break;
       }
 
+      buffer += decoder.decode(
+        value,
+        {
+          stream: true
+        }
+      );
 
-      const data =
-        event.replace(
-          /^data:\s*/,
-          ''
-        );
+      while (buffer.includes('\n\n')) {
+        const index =
+          buffer.indexOf('\n\n');
 
+        const event =
+          buffer.slice(
+            0,
+            index
+          );
 
-      if(data === '[DONE]'){
-        return;
-      }
+        buffer =
+          buffer.slice(
+            index + 2
+          );
 
-
-      try{
-
-        const json =
-          JSON.parse(data);
-
-
-        const token =
-          json
-            .choices?.[0]
-            ?.delta
-            ?.content;
-
-
-        if(token){
-          yield token;
+        if (!event.startsWith('data:')) {
+          continue;
         }
 
-      }
-      catch{
-        continue;
-      }
+        const data =
+          event.replace(
+            /^data:\s*/,
+            ''
+          );
 
+        if (data === '[DONE]') {
+          break;
+        }
+
+        try {
+          const json =
+            JSON.parse(data);
+
+          const delta =
+            json.choices?.[0]?.delta;
+
+          if (!delta) continue;
+
+          if (delta.content) {
+            fullContent +=
+              delta.content;
+
+            yield delta.content;
+          }
+
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              if (!toolCalls[idx]) {
+                toolCalls[idx] = {
+                  id: tc.id,
+                  type: 'function',
+                  function: {
+                    name: '',
+                    arguments: ''
+                  }
+                };
+              }
+              if (tc.id) toolCalls[idx].id = tc.id;
+              if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+              if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
     }
+
+    if (toolCalls.length > 0) {
+      // Add assistant message with tool calls to history
+      currentMessages.push({
+        role: 'assistant',
+        content: fullContent || null,
+        tool_calls: toolCalls.filter(tc => tc)
+      });
+
+      for (const toolCall of toolCalls) {
+        if (!toolCall) continue;
+        const name =
+          toolCall.function.name as ToolName;
+
+        let args = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch (e) {
+          console.error('Failed to parse streamed tool arguments', toolCall.function.arguments);
+        }
+
+        console.log(
+          `[tool stream] ${name}`,
+          args
+        );
+
+        let result;
+        try {
+          if (tools[name]) {
+            result =
+              await (tools[name] as any).run(
+                args
+              );
+          } else {
+            result =
+              `Tool ${name} not found`;
+          }
+        } catch (e) {
+          result =
+            `Error: ${e instanceof Error ? e.message : String(e)}`;
+        }
+
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content:
+            typeof result === 'string'
+              ? result
+              : JSON.stringify(result)
+        });
+      }
+      // Continue the while loop to get the next response after tool execution
+      continue;
+    }
+
+    // No tool calls, we are finished
+    break;
   }
 }

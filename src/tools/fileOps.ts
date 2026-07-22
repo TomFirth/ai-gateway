@@ -6,7 +6,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
 }
 
-export async function openFile(filePath: string): Promise<string> {
+export async function openFile({ path: filePath }: { path: string }): Promise<string> {
   if (!filePath?.trim()) {
     throw new Error('open_file path must not be empty');
   }
@@ -15,9 +15,9 @@ export async function openFile(filePath: string): Promise<string> {
   return fsReadFile(safePath, 'utf8');
 }
 
-export async function replaceText(filePath: string, searchText: string, replaceText: string): Promise<string> {
+export async function replaceText({ path: filePath, searchText, replaceText }: { path: string, searchText: string, replaceText: string }): Promise<string> {
   if (!filePath?.trim() || searchText === undefined || replaceText === undefined) {
-    throw new Error('replace_text requires filePath, searchText, and replaceText');
+    throw new Error('replace_text requires path, searchText, and replaceText');
   }
 
   const safePath = resolveProjectPath(filePath);
@@ -31,7 +31,7 @@ export async function replaceText(filePath: string, searchText: string, replaceT
   return `Updated ${filePath}: replaced ${content.length - updated.length} characters.`;
 }
 
-export async function renameSymbol(oldName: string, newName: string, filePath?: string): Promise<string> {
+export async function renameSymbol({ oldName, newName, filePath }: { oldName: string, newName: string, filePath?: string }): Promise<string> {
   if (!oldName?.trim() || !newName?.trim()) {
     throw new Error('rename_symbol requires oldName and newName');
   }
