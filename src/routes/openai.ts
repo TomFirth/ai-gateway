@@ -24,7 +24,6 @@ export default async function openaiRoutes(fastify: any) {
         JSON.stringify(request.body, null, 2)
       );
 
-
       const {
         messages,
         model,
@@ -35,7 +34,6 @@ export default async function openaiRoutes(fastify: any) {
         stream?: boolean;
       };
 
-
       if (!Array.isArray(messages)) {
         return reply.status(400).send({
           error: {
@@ -44,16 +42,10 @@ export default async function openaiRoutes(fastify: any) {
         });
       }
 
-
       const modelName =
         model ?? 'qwen2.5-coder';
 
-
-      // Only send the latest message to avoid redundant history and filter out system messages.
-      const activeMessages = messages
-        .filter(m => m.role !== 'system')
-        .slice(-1);
-
+      const activeMessages = messages.filter(m => m.role !== 'system');
 
       console.log(
         `[chat] ${messages.length} incoming -> sending ${activeMessages.length} | stream=${stream}`
@@ -88,61 +80,74 @@ export default async function openaiRoutes(fastify: any) {
         raw.socket?.setNoDelay(true);
 
         const id = `chatcmpl-${Date.now()}`;
+        let closed = false;
+
+        request.raw.on('close', () => {
+          closed = true;
+          console.log('[stream] connection closed by client');
+        });
+
+        // 10-second heartbeat to prevent 30s timeouts on the Pi
+        const heartbeatInterval = setInterval(() => {
+          if (!closed) {
+            raw.write(': heartbeat\n\n');
+          } else {
+            clearInterval(heartbeatInterval);
+          }
+        }, 10000);
 
         const send = (
           content: string | null,
+          deltaOverrides: any = null,
           finish_reason: string | null = null
         ) => {
+          if (closed) return;
 
           const chunk = {
             id,
-            object:"chat.completion.chunk",
-            created:Math.floor(Date.now()/1000),
-            model:modelName,
-            choices:[
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: [
               {
-                index:0,
-                delta:{
-                  content
-                },
+                index: 0,
+                delta: deltaOverrides || { content },
                 finish_reason
               }
             ]
           };
 
-          raw.write(
-            `data: ${JSON.stringify(chunk)}\n\n`
-          );
+          raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
         };
 
         try {
+          // Immediately send role to trigger UI
+          send(null, { role: 'assistant' });
 
-          for await (
-            const chunk of chatStream(activeMessages)
-          ) {
+          for await (const chunk of chatStream(activeMessages)) {
+            if (closed) break;
 
-            if (
-              typeof chunk.content === "string"
-            ) {
-              send(chunk.content);
+            if (chunk.comment) {
+              raw.write(`: ${chunk.comment}\n\n`);
+              continue;
             }
 
+            if (typeof chunk.content === "string") {
+              send(chunk.content);
+            }
           }
 
-          send(null,"stop");
-
-          raw.write(
-            "data: [DONE]\n\n"
-          );
-
-        } catch(err){
-          raw.write(
-            `data:${JSON.stringify({
-              error:String(err)
-            })}\n\n`
-          );
-        }
-        finally {
+          if (!closed) {
+            send(null, {}, "stop");
+            raw.write("data: [DONE]\n\n");
+          }
+        } catch (err) {
+          console.error('[Stream Error]', err);
+          if (!closed) {
+            raw.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
+          }
+        } finally {
+          clearInterval(heartbeatInterval);
           raw.end();
         }
         return;

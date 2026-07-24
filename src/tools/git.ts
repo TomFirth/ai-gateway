@@ -28,3 +28,25 @@ export async function gitLog({ count = 20 }: { count?: string | number } = {}): 
 
   return execGit(['log', '--oneline', `--max-count=${maxCount}`]);
 }
+
+export async function gitAdd({ path = '.' }: { path?: string } = {}): Promise<string> {
+  return execGit(['add', path]);
+}
+
+export async function gitCommit({ message }: { message: string }): Promise<string> {
+  if (!message?.trim()) {
+    throw new Error('git_commit requires a message');
+  }
+  return execGit(['commit', '-m', message]);
+}
+
+export async function gitBranch(): Promise<string> {
+  return execGit(['branch', '-a']);
+}
+
+export async function gitCheckout({ branch }: { branch: string }): Promise<string> {
+  if (!branch?.trim()) {
+    throw new Error('git_checkout requires a branch name');
+  }
+  return execGit(['checkout', branch]);
+}

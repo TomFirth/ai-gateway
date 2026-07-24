@@ -75,3 +75,16 @@ export async function renameSymbol({ oldName, newName, filePath }: { oldName: st
 
   return `Renamed symbol ${oldName} to ${newName} in ${changeCount} file(s).`;
 }
+
+export async function copyFile({ source, destination }: { source: string, destination: string }): Promise<string> {
+  const safeSource = resolveProjectPath(source);
+  const safeDest = resolveProjectPath(destination);
+
+  try {
+    const { cp } = await import('fs/promises');
+    await cp(safeSource, safeDest, { recursive: true });
+    return `Successfully copied ${source} to ${destination}`;
+  } catch (error) {
+    return `Error copying file: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
